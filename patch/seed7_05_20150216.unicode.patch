@@ -1,0 +1,1859 @@
+diff -aurN seed7_05_20150216.orig/lib/progs.s7i seed7_05_20150216/lib/progs.s7i
+--- seed7_05_20150216.orig/lib/progs.s7i	2015-01-18 12:12:15.000000000 -0500
++++ seed7_05_20150216/lib/progs.s7i	2015-02-27 14:18:51.738619466 -0500
+@@ -94,10 +94,13 @@
+     TRACE_HEAP_SIZE,       # Trace heap size
+     TRACE_MATCH,           # Trace matching expressions
+     TRACE_EXECUTIL,        # Trace exec utility functions
++	TRACE_SIGNALS,         # Trace signals
++	HANDLE_SIGNALS,        # Handle signals
+     WRITE_LIBRARY_NAMES,   # Write a list of include libraries
+     WRITE_LINE_NUMBERS,    # Write line numbers, while analyzing
+     SHOW_IDENT_TABLE,      # Show the identifier table after the analyzing phase
+-    SHOW_STATISTICS        # Show compilation statistics
++    SHOW_STATISTICS,       # Show compilation statistics
++    PROG_IDENT_UNICODE	   # Allow all unicode letters in identifiers
+   end enum;
+ 
+ const type: parseOptions is set of singleParseOption;
+diff -aurN seed7_05_20150216.orig/lib/unionfnd.s7i seed7_05_20150216/lib/unionfnd.s7i
+--- seed7_05_20150216.orig/lib/unionfnd.s7i	2015-02-15 10:36:59.000000000 -0500
++++ seed7_05_20150216/lib/unionfnd.s7i	2015-02-25 12:37:25.886506587 -0500
+@@ -1,8 +1,9 @@
+ 
+ (********************************************************************)
+ (*                                                                  *)
+-(*  unionfnd.s7i    Implementation of disjoint sets structure which *)
+-(*      allows to merge elements and check if any two are connected *)
++(*  unionfnd.s7i Operations on disjoint sets data structure         *)
++(*      Provide methods that allow to merge elements of an array    *)
++(*      and check if any two elements are connected, aka union-find *)
+ (*  Copyright (C) 2014, 2015  Arkady Kuleshov                       *)
+ (*                                                                  *)
+ (*  This file is part of the Seed7 Runtime Library.                 *)
+diff -aurN seed7_05_20150216.orig/prg/chkuni.sd7 seed7_05_20150216/prg/chkuni.sd7
+--- seed7_05_20150216.orig/prg/chkuni.sd7	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/prg/chkuni.sd7	2015-02-27 14:18:51.746619466 -0500
+@@ -0,0 +1,88 @@
++
++(********************************************************************)
++(*                                                                  *)
++(*  chkuni.sd7    Checks unicode identifiers support                *)
++(*  Copyright (C) 1992 - 1994, 2004, 2009, 2013, 2014 Thomas Mertes *)
++(*                                                                  *)
++(*  This program is free software; you can redistribute it and/or   *)
++(*  modify it under the terms of the GNU General Public License as  *)
++(*  published by the Free Software Foundation; either version 2 of  *)
++(*  the License, or (at your option) any later version.             *)
++(*                                                                  *)
++(*  This program is distributed in the hope that it will be useful, *)
++(*  but WITHOUT ANY WARRANTY; without even the implied warranty of  *)
++(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the   *)
++(*  GNU General Public License for more details.                    *)
++(*                                                                  *)
++(*  You should have received a copy of the GNU General Public       *)
++(*  License along with this program; if not, write to the           *)
++(*  Free Software Foundation, Inc., 51 Franklin Street,             *)
++(*  Fifth Floor, Boston, MA  02110-1301, USA.                       *)
++(*                                                                  *)
++(********************************************************************)
++
++
++$ include "seed7_05.s7i";
++  include "stdio.s7i";
++  include "char.s7i";
++
++
++const proc: check_unicode_is_letter is func
++  local
++    (* var boolean: success in Russian *)
++    var boolean: успешно is TRUE;
++  begin
++    if
++      is_letter('!') <> FALSE or
++      is_letter('D') <> TRUE or
++      is_letter('d') <> TRUE or
++      is_letter('\16#00A0;') <> FALSE or # NO-BREAK SPACE
++      is_letter('\16#00C9;') <> TRUE or # LATIN CAPITAL LETTER E WITH ACUTE
++      is_letter('\16#0391;') <> TRUE or # GREEK CAPITAL LETTER ALPHA
++      is_letter('\16#043D;') <> TRUE or # CYRILLIC SMALL LETTER EN
++      is_letter('\16#0621;') <> TRUE or # ARABIC LETTER HAMZA
++      is_letter('\16#0B85;') <> TRUE or # TAMIL LETTER A
++      is_letter('\16#F900;') <> TRUE or # CJK COMPATIBILITY IDEOGRAPH
++      is_letter(' ') <> FALSE then
++      writeln("is_letter function does not work correct.");
++      успешно := FALSE;
++    end if;
++
++    if успешно then
++      writeln("character is_letter function works correct.");
++    end if;
++  end func;
++
++
++const proc: check_unicode_width is func
++  local
++    var boolean: успешно is TRUE;
++  begin
++    if
++      chr_width('\0;') <> 0 or
++      chr_width('A') <> 1 or
++      chr_width(' ') <> 1 or
++      chr_width('\16#0A;') <> 0 or
++      chr_width('\16#83;') <> 0 or
++      chr_width('\16#0391;') <> 1 or
++      chr_width('\16#3301;') <> 2 or
++      chr_width('\16#ff62;') <> 1 or
++      chr_width('\16#ff03;') <> 2 then
++      writeln("chr_width function does not work correct.");
++      успешно := FALSE;
++    end if;
++
++    if успешно then
++      writeln("chr_width function works correct.");
++    end if;
++  end func;
++
++const proc: main is func
++
++  local
++    var string: stri is "";
++  begin
++    writeln;
++    check_unicode_is_letter;
++    check_unicode_width;
++  end func;
+diff -aurN seed7_05_20150216.orig/prg/s7c.sd7 seed7_05_20150216/prg/s7c.sd7
+--- seed7_05_20150216.orig/prg/s7c.sd7	2015-02-07 07:17:43.000000000 -0500
++++ seed7_05_20150216/prg/s7c.sd7	2015-02-27 14:18:51.758619466 -0500
+@@ -6872,6 +6872,8 @@
+ const proc: pass_1 (in string: source, inout program: prog,
+     inout boolean: okay) is func
+ 
++  local
++    var parseOptions: parseOpt is parseOptions.value;
+   begin
+     if source <> "" then
+       writeln("Compiling the program ...");
+@@ -6902,12 +6904,17 @@
+         end if;
+       end if;
+       setIntegerOverflowCheck(integer_overflow_check);
+-      if "-c" in compiler_option then
+-        generate_c_plus_plus := compiler_option["-c"] = "++";
++      if "-C" in compiler_option then
++        generate_c_plus_plus := compiler_option["-C"] = "++";
+         declare_with_extern_c := generate_c_plus_plus;
+       end if;
++      if "-c" in compiler_option then
++        if pos(compiler_option["-c"], 'u') <> 0 then
++          incl(parseOpt, PROG_IDENT_UNICODE);
++        end if;
++      end if;
+       block
+-        prog := parseFile(source, parseOptions.value, libraryDirs);
++        prog := parseFile(source, parseOpt, libraryDirs);
+       exception
+         catch RANGE_ERROR:
+           prog := program.EMPTY;
+@@ -7252,6 +7259,10 @@
+     writeln("  -?   Write Seed7 compiler usage.");
+     writeln("  -O and -O2  Tell the C compiler to optimize.");
+     writeln("  -b   Specify the directory of the Seed7 runtime libraries (e.g.: -b ../bin).");
++    writeln("  -C++ Generate c++ compiler compatible code.");
++    writeln("  -cx  Choose code set for program identifiers. Where x is a string consisting of:\n");
++    writeln("         a ASCII code set only allowed for identifiers (default)\n");
++    writeln("         u UTF-8 code set with all alphabetic symbols\n");
+     writeln("  -e   Generate code which sends a signal, when an uncaught exception occurs.");
+     writeln("       This option allows debuggers to handle uncaught Seed7 exceptions.");
+     writeln("  -g   Tell the C compiler to generate an executable with debug information.");
+@@ -7309,7 +7320,7 @@
+           elsif curr_arg in {"-l"} and index < length(argv(PROGRAM)) then
+             incr(index);
+             libraryDirs &:= convDosPath(argv(PROGRAM)[index]);
+-          elsif curr_arg[.. 2] in {"-?", "-b", "-c", "-e", "-g", "-o", "-s", "-t", "-O"} then
++          elsif curr_arg[.. 2] in {"-?", "-b", "-c", "-C", "-e", "-g", "-o", "-s", "-t", "-O"} then
+             if curr_arg[.. 2] in compiler_option then
+               writeln("*** Option " <& curr_arg[.. 2] <&
+                       " specified twice. Ignore option: " <& curr_arg);
+diff -aurN seed7_05_20150216.orig/rus/gcd.sd7 seed7_05_20150216/rus/gcd.sd7
+--- seed7_05_20150216.orig/rus/gcd.sd7	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/rus/gcd.sd7	2015-02-27 14:33:19.158635750 -0500
+@@ -0,0 +1,111 @@
++
++(********************************************************************)
++(*                                                                  *)
++(*  gcd.sd7       Compute the greatest common divisor               *)
++(*  Copyright (C) 2005  Thomas Mertes                               *)
++(*                                                                  *)
++(*  This program is free software; you can redistribute it and/or   *)
++(*  modify it under the terms of the GNU General Public License as  *)
++(*  published by the Free Software Foundation; either version 2 of  *)
++(*  the License, or (at your option) any later version.             *)
++(*                                                                  *)
++(*  This program is distributed in the hope that it will be useful, *)
++(*  but WITHOUT ANY WARRANTY; without even the implied warranty of  *)
++(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the   *)
++(*  GNU General Public License for more details.                    *)
++(*                                                                  *)
++(*  You should have received a copy of the GNU General Public       *)
++(*  License along with this program; if not, write to the           *)
++(*  Free Software Foundation, Inc., 51 Franklin Street,             *)
++(*  Fifth Floor, Boston, MA  02110-1301, USA.                       *)
++(*                                                                  *)
++(********************************************************************)
++
++
++$ include "seed7_05.s7i";
++  include "stdio.s7i";
++  include "utf8.s7i";
++
++const type: цел is integer;
++
++const func цел: нод (in var цел: a, in var цел: b) is func
++  result
++    var цел: нод is 0;
++  local
++    var цел: help is 0;
++  begin
++    while a <> 0 do
++      help := b rem a;
++      b := a;
++      a := help;
++    end while;
++    нод := b;
++  end func;
++
++
++const func integer: binaryGcd (in var цел: a, in var цел: b) is func
++  result
++    var цел: gcd is 0;
++  local
++    var цел: shift is 0;
++    var цел: diff is 0;
++  begin
++    if a = 0 then
++      gcd := b;
++    elsif b = 0 then
++      gcd := a;
++    else
++      (* Let shift := log2(K), where K is the greatest power of 2
++         dividing both a and b. *)
++      while not odd(a) and not odd(b) do
++          a >>:= 1;
++          b >>:= 1;
++        incr(shift);
++      end while;
++
++      while not odd(a) do
++        a >>:= 1;
++      end while;
++
++      (* From here on, a is always odd. *)
++      repeat
++        while not odd(b) do
++          b >>:= 1;
++        end while;
++
++        (* Now a and b are both odd, so diff(a, b) is even.
++           Let a := min(a, b); b := diff(a, b)/2; *)
++        if a < b then
++          b -:= a;
++        else
++          diff := a - b;
++          a := b;
++          b := diff;
++        end if;
++        b >>:= 1;
++      until b = 0;
++
++      gcd := a << shift;
++    end if;
++  end func;
++
++
++const proc: main is func
++  local
++    var цел: count is 0;
++    var цел: a is 0;
++    var цел: b is 0;
++  begin
++    OUT := STD_UTF8_OUT;
++    for count range 1 to 50 do
++      a := rand(1, 10000);
++      b := rand(1, 10000);
++      write("нод(" <& a <& ", " <& b <& ")=" <& нод(a, b));
++      if a rem нод(a, b) = 0 and b rem нод(a, b) = 0 and
++          a rem binaryGcd(a, b) = 0 and b rem binaryGcd(a, b) = 0 then
++        writeln(" верно");
++      else
++        writeln(" неверно");
++      end if;
++    end for;
++  end func;
+diff -aurN seed7_05_20150216.orig/src/analyze.c seed7_05_20150216/src/analyze.c
+--- seed7_05_20150216.orig/src/analyze.c	2014-08-31 04:45:07.000000000 -0400
++++ seed7_05_20150216/src/analyze.c	2015-02-27 14:18:51.758619466 -0500
+@@ -85,12 +85,18 @@
+ 
+ 
+ 
+-static void init_analyze (void)
++static void init_analyze (uintType options)
+ 
+   { /* init_analyze */
+     if (!analyze_initialized) {
+       set_protfile_name(NULL);
++      init_locale();
++      if (opt_has_flag(options, PROG_IDENT_UNICODE)
++       && opt_has_flag(encoding_options, ENC_SOURCE_UTF8)) {
++        encoding_options |= ENC_IDENT_UTF8;
++      }
+       init_chclass();
++      init_scanner();
+       init_primitiv();
+       init_do_any();
+       memset(&prog, 0, sizeof(progRecord)); /* not used, saved in analyze and interpr */
+@@ -560,7 +566,7 @@
+     printf("BEGIN analyze_file\n");
+ #endif
+     interpreter_exception = TRUE;
+-    init_analyze();
++    init_analyze(options);
+     resultProg = NULL;
+     if (source_file_argument->size > 4 &&
+         source_file_argument->mem[source_file_argument->size - 4] == '.' &&
+@@ -656,7 +662,7 @@
+     printf("BEGIN analyze_string\n");
+ #endif
+     interpreter_exception = TRUE;
+-    init_analyze();
++    init_analyze(options);
+     resultProg = NULL;
+     source_file_argument = cstri_to_stri("STRING");
+     if (source_file_argument == NULL) {
+diff -aurN seed7_05_20150216.orig/src/chclsutl.c seed7_05_20150216/src/chclsutl.c
+--- seed7_05_20150216.orig/src/chclsutl.c	2014-03-29 05:57:45.000000000 -0400
++++ seed7_05_20150216/src/chclsutl.c	2015-02-27 14:18:51.758619466 -0500
+@@ -43,12 +43,59 @@
+ #include "stdio.h"
+ 
+ #include "common.h"
++#include "locale.h"
++#if !defined(_WIN32)
++#if !defined(OS_STRI_USES_CODE_PAGE)
++#include "langinfo.h"
++#endif
++#else
++#include "windows.h"
++#endif
+ 
+ #undef EXTERN
+ #define EXTERN
+ #include "chclsutl.h"
+ 
+ 
++/**
++ *  Determines if the console is in UTF-8 mode.
++ *  Checks the current codeset and compile time setting.
++ *  @return TRUE if console supports UTF-8 codeset.
++ */
++void init_locale (void)
++
++  { /* init_locale */
++    if (!setlocale(LC_CTYPE, "")) {
++      printf("\n*** Unable to set the default locale! "
++                   "Check LANG, LC_CTYPE, LC_ALL.\n");
++    }
++    system_code_set = 0;
++    boolType locale_utf8 = FALSE;
++    boolType console_utf8 = FALSE;
++    encoding_options = ENC_SOURCE_UTF8;
++#ifdef _H_LANGINFO
++    char* codeset = nl_langinfo(CODESET);
++    /*printf("nl_langinfo(CODESET) returns %s\n", codeset);*/
++    if (strcmp(codeset, "UTF-8") == 0) {
++      locale_utf8 = TRUE;
++#ifdef CONSOLE_UTF8
++      console_utf8 = TRUE;
++#endif
++    }
++#else
++#ifdef _WIN32
++    system_code_set = GetConsoleOutputCP();
++#endif
++#endif
++    if (locale_utf8) {
++      encoding_options |= ENC_SYSTEM_UTF8;
++    }
++    if (console_utf8) {
++      encoding_options |= ENC_CONSOLE_UTF8;
++    }
++  } /* init_locale */
++
++
+ 
+ void init_chclass (void)
+ 
+diff -aurN seed7_05_20150216.orig/src/chclsutl.h seed7_05_20150216/src/chclsutl.h
+--- seed7_05_20150216.orig/src/chclsutl.h	2014-03-29 05:57:46.000000000 -0400
++++ seed7_05_20150216/src/chclsutl.h	2015-02-27 14:18:51.758619466 -0500
+@@ -44,5 +44,18 @@
+ #define no_escape_char(CHARACTER)   ch_not_esc     [((int)(CHARACTER)) - EOF]
+ #define std_comment_char(CHARACTER) ch_std_comment [((int)(CHARACTER)) - EOF]
+ 
++#define ENC_SOURCE_UTF8      1
++#define ENC_SYSTEM_UTF8      2
++#define ENC_CONSOLE_UTF8     4
++#define ENC_IDENT_UTF8       8
++
++#define opt_has_flag(name,f) ((name & (f)) == (f))
++
++EXTERN uintType system_code_set;
++
++EXTERN uintType encoding_options;
++
++
++void init_locale  (void);
+ 
+ void init_chclass (void);
+diff -aurN seed7_05_20150216.orig/src/.cproject seed7_05_20150216/src/.cproject
+--- seed7_05_20150216.orig/src/.cproject	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/src/.cproject	2015-02-27 14:07:30.866606683 -0500
+@@ -0,0 +1,44 @@
++<?xml version="1.0" encoding="UTF-8" standalone="no"?>
++<?fileVersion 4.0.0?><cproject storage_type_id="org.eclipse.cdt.core.XmlProjectDescriptionStorage">
++	<storageModule moduleId="org.eclipse.cdt.core.settings">
++		<cconfiguration id="cdt.managedbuild.toolchain.gnu.cross.base.1664533824">
++			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="cdt.managedbuild.toolchain.gnu.cross.base.1664533824" moduleId="org.eclipse.cdt.core.settings" name="Default">
++				<externalSettings/>
++				<extensions>
++					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
++					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
++					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
++					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
++					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
++					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
++				</extensions>
++			</storageModule>
++			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
++				<configuration buildProperties="" id="cdt.managedbuild.toolchain.gnu.cross.base.1664533824" name="Default" parent="org.eclipse.cdt.build.core.emptycfg">
++					<folderInfo id="cdt.managedbuild.toolchain.gnu.cross.base.1664533824.881185115" name="/" resourcePath="">
++						<toolChain id="cdt.managedbuild.toolchain.gnu.cross.base.33244116" name="Cross GCC" superClass="cdt.managedbuild.toolchain.gnu.cross.base">
++							<option id="cdt.managedbuild.option.gnu.cross.prefix.1811257429" name="Prefix" superClass="cdt.managedbuild.option.gnu.cross.prefix"/>
++							<option id="cdt.managedbuild.option.gnu.cross.path.1840986274" name="Path" superClass="cdt.managedbuild.option.gnu.cross.path"/>
++							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="cdt.managedbuild.targetPlatform.gnu.cross.1309561562" isAbstract="false" osList="all" superClass="cdt.managedbuild.targetPlatform.gnu.cross"/>
++							<builder id="cdt.managedbuild.builder.gnu.cross.1285494135" managedBuildOn="false" name="Gnu Make Builder.Default" superClass="cdt.managedbuild.builder.gnu.cross"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.c.compiler.293377884" name="Cross GCC Compiler" superClass="cdt.managedbuild.tool.gnu.cross.c.compiler"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.cpp.compiler.414412804" name="Cross G++ Compiler" superClass="cdt.managedbuild.tool.gnu.cross.cpp.compiler"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.c.linker.151592692" name="Cross GCC Linker" superClass="cdt.managedbuild.tool.gnu.cross.c.linker"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.cpp.linker.1266475187" name="Cross G++ Linker" superClass="cdt.managedbuild.tool.gnu.cross.cpp.linker"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.archiver.1598026599" name="Cross GCC Archiver" superClass="cdt.managedbuild.tool.gnu.cross.archiver"/>
++							<tool id="cdt.managedbuild.tool.gnu.cross.assembler.1378746523" name="Cross GCC Assembler" superClass="cdt.managedbuild.tool.gnu.cross.assembler"/>
++						</toolChain>
++					</folderInfo>
++				</configuration>
++			</storageModule>
++			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
++		</cconfiguration>
++	</storageModule>
++	<storageModule moduleId="scannerConfiguration">
++		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
++	</storageModule>
++	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
++		<project id="seed7_05_20150216.null.1079464693" name="seed7_05_20150216"/>
++	</storageModule>
++	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
++</cproject>
+diff -aurN seed7_05_20150216.orig/src/drw_dos.c seed7_05_20150216/src/drw_dos.c
+--- seed7_05_20150216.orig/src/drw_dos.c	2015-02-01 05:47:17.000000000 -0500
++++ seed7_05_20150216/src/drw_dos.c	2015-05-18 14:29:46.336143988 -0400
+@@ -249,7 +249,7 @@
+ 
+ 
+ 
+-winType drwEmpty (intType width, intType height)
++winType drwEmpty (void)
+ 
+   { /* drwEmpty */
+     return NULL;
+diff -aurN seed7_05_20150216.orig/src/error.c seed7_05_20150216/src/error.c
+--- seed7_05_20150216.orig/src/error.c	2015-01-14 14:23:24.000000000 -0500
++++ seed7_05_20150216/src/error.c	2015-02-27 14:19:01.642619652 -0500
+@@ -32,6 +32,7 @@
+ 
+ #include "stdio.h"
+ #include "stdlib.h"
++#include "ctype.h"
+ 
+ #include "common.h"
+ #include "data.h"
+@@ -41,7 +42,11 @@
+ #include "infile.h"
+ #include "info.h"
+ #include "symbol.h"
++#include "striutl.h"
++#include "chclsutl.h"
+ #include "stat.h"
++#include "chr_rtl.h"
++#include "ut8_rtl.h"
+ 
+ #undef EXTERN
+ #define EXTERN
+@@ -57,9 +62,27 @@
+ 
+ 
+ 
++static inline void print_uchar_buffer(ucharType *buffer, memSizeType buffer_size)
++
++  {
++    /* print_uchar_buffer */
++    if (opt_has_flag(encoding_options, ENC_CONSOLE_UTF8)) {
++      prot_uchar_buf(buffer, buffer_size);
++    }
++    else {
++      buffer[buffer_size] = '\0';
++      prot_cstri((cstriType)buffer);
++    } /* if */
++  } /* print_uchar_buffer */
++
++
+ static void print_line (lineNumType err_line)
+ 
+   {
++    boolType is_utf8_buffer;
++    ucharType buffer[1025];
++    size_t max_buffer_size;
++    size_t buffer_size;
+     long current_position;
+     long buffer_start_position;
+     unsigned int table_size;
+@@ -114,16 +137,61 @@
+           if ((ch = next_character()) == '\r') {
+             ch = next_character();
+           } /* if */
+-          while (ch != '\r' && ch != '\n' && ch != EOF) {
+-            if (ch == '\t') {
+-              prot_cstri(" ");
+-            } else if (ch < ' ' || ch > '~') {
+-              prot_cstri("?");
+-            } else {
+-              prot_cchar((char) ch);
++          buffer_size = 0;
++          is_utf8_buffer = opt_has_flag(encoding_options, ENC_IDENT_UTF8);
++          if (is_utf8_buffer) {
++            boolType is_continuation = FALSE;
++            max_buffer_size = sizeof(buffer)/sizeof(ucharType) - 7;
++            while (ch != '\r' && ch != '\n' && ch != EOF) {
++              if (buffer_size >= max_buffer_size && !is_continuation) {
++                print_uchar_buffer (buffer, buffer_size);
++                buffer_size = 0;
++              } /* if */
++              if (ch == '\t') {
++                buffer[buffer_size++] = ' ';
++              } else if (ch >= 0x80 && ch <= 0xFF) {
++                buffer[buffer_size++] = (ucharType)ch;
++              } else if (isprint(ch)) {
++                buffer[buffer_size++] = (ucharType)ch;
++              } else {
++                buffer[buffer_size++] = '?';
++              } /* if */
++              ch = next_character();
++              if (ch >= 0x80 && ch < 0xC0) {
++                is_continuation = TRUE;
++              }
++              else {
++                is_continuation = FALSE;
++              }
++            } /*while */
++            if (buffer_size > 0) {
++              print_uchar_buffer (buffer, buffer_size);
+             } /* if */
+-            ch = next_character();
+-          } /*while */
++          }
++          else {
++            max_buffer_size = sizeof(buffer)/sizeof(ucharType) - 1;
++            while (ch != '\r' && ch != '\n' && ch != EOF) {
++              if (buffer_size == max_buffer_size) {
++                buffer[buffer_size] = '\0';
++                prot_cstri((cstriType)buffer);
++                buffer_size = 0;
++              } /* if */
++              if (ch == '\t') {
++                buffer[buffer_size++] = ' ';
++              } else if (iscntrl(ch)) {
++                buffer[buffer_size++] = '?';
++              } else if (char_class(ch) == ILLEGALCHAR) {
++                buffer[buffer_size++] = '?';
++              } else {
++                buffer[buffer_size++] = (ucharType) ch;
++              } /* if */
++              ch = next_character();
++            } /*while */
++            if (buffer_size > 0) {
++              buffer[buffer_size] = '\0';
++              prot_cstri((cstriType)buffer);
++            } /* if */
++          }
+           prot_nl();
+           prot_nl();
+           FREE_TABLE(nl_table, long, table_size);
+@@ -141,12 +209,15 @@
+     long current_position;
+     long buffer_start_position;
+     int start_index;
++    boolType do_output_buffer;
+     ucharType buffer[1025];
+     int buffer_size;
+     int start;
+     int stop;
+     int number;
+     int ch;
++    int indicator_length;
++    size_t buffer_length;
+ 
+   /* print_error_line */
+     if (in_file.name_ustri != NULL && in_file.curr_infile != NULL &&
+@@ -180,19 +251,75 @@
+       } /* while */
+ /*    printf("******************************\n\n"); */
+ /*    printf("%d\n", in_file.character); */
+-      for (number = start + 1; number < stop; number++) {
+-        if (buffer[number] == '\t') {
+-          buffer[number] = ' ';
+-        } else if (buffer[number] < ' ' || buffer[number] > '~') {
+-          buffer[number] = '?';
++      indicator_length = 0;
++      buffer_length = (size_t) (stop - start - 1);
++      do_output_buffer = TRUE;
++      // check if source code uses Unicode identifiers
++      if (opt_has_flag(encoding_options, ENC_IDENT_UTF8)) {
++        size_t utf8_char_count = 0;
++        while (buffer[start+1] >= 0x80 && buffer[start+1] < 0xC0) {
++          // skip utf-8 continuation characters
++          start++;
++          buffer_length--;
++        }
++        for (number = start + 1; number < stop; number++) {
++          if (buffer[number] == '\t') {
++            utf8_char_count++;
++            buffer[number] = ' ';
++          } else if (buffer[number] < 0x80) {
++            utf8_char_count++;
++            if (!isprint(buffer[number])) {
++              buffer[number] = '?';
++            }
++          } else if (buffer[number] >= 0xC0 && buffer[number] <= 0xFF) {
++            utf8_char_count++;
++          } /* if */
++        } /* for */
++
++        striType out_stri;
++        memSizeType dest_len = 0;
++        if (ALLOC_STRI_CHECK_SIZE(out_stri, utf8_char_count + 1)) {
++          /* conversion to wide character from utf8 succeeds? */
++          if (utf8_to_stri (out_stri->mem, &dest_len, &buffer[(size_t)start], buffer_length) == 0) {
++            out_stri->size = dest_len;
++            dest_len = (memSizeType)(start_index - start);
++            while (dest_len > 0) {
++              indicator_length += (int) chrWidth(out_stri->mem[--dest_len]);
++            } /* while */
++            if (prot_stri_internal(out_stri)) {
++              do_output_buffer = FALSE;
++            }
++            FREE_STRI(out_stri, out_stri->capacity);
++          }
++        }
++        if (indicator_length == 0) {
++          indicator_length = (int)start_index - start;
+         } /* if */
+-      } /* for */
+-      fwrite(&buffer[start + 1], 1, (size_t) (stop - start - 1), stdout);
++      }
++      else {
++        for (number = start + 1; number < stop; number++) {
++          if (buffer[number] == '\t') {
++            buffer[number] = ' ';
++          } else if (iscntrl(buffer[number])) {
++            buffer[number] = '?';
++          } else if (char_class(buffer[number]) == ILLEGALCHAR) {
++            buffer[number] = '?';
++          } /* if */
++          if (number < start_index) {
++            indicator_length++;
++          } /* if */
++        } /* for */
++      }
++      if (do_output_buffer) {
++        print_uchar_buffer (&buffer[(size_t)start + 1], buffer_length);
++      }
+       prot_nl();
+-      for (number = 0; number < start_index - start - 1; number++) {
+-        prot_cstri("-");
++      for (number = 0; number < indicator_length; number++) {
++        buffer[number] = '~';
+       } /* for */
+-      prot_cstri("^");
++      buffer[number++] = '^';
++      buffer[number++] = '\0';
++      prot_cstri((cstriType)buffer);
+       prot_nl();
+       IN_FILE_SEEK(current_position);
+     } /* if */
+diff -aurN seed7_05_20150216.orig/src/level.h seed7_05_20150216/src/level.h
+--- seed7_05_20150216.orig/src/level.h	2015-02-16 15:43:27.000000000 -0500
++++ seed7_05_20150216/src/level.h	2015-05-28 12:50:58.702976553 -0400
+@@ -1 +1 @@
+-#define LEVEL 6115
++#define LEVEL 6120
+diff -aurN seed7_05_20150216.orig/src/literal.c seed7_05_20150216/src/literal.c
+--- seed7_05_20150216.orig/src/literal.c	2014-04-05 18:04:50.000000000 -0400
++++ seed7_05_20150216/src/literal.c	2015-02-27 14:19:01.642619652 -0500
+@@ -152,7 +152,7 @@
+     return position;
+   } /* escape_sequence */
+ 
+-
++static ucharType _utf8_repr_ [] = {0,0,0,0,0,0,0};
+ 
+ /**
+  *  Read an UTF-8 character.
+@@ -161,16 +161,22 @@
+  *  @param character UTF-8 start byte.
+  *  @return an UTF-32 character.
+  */
+-charType utf8_char (register int character)
++charType utf8_char (register int character, ustriType destBuffer, uint32Type *utf8Length)
+ 
+   {
+     charType result;
++    int reprPos = 0;
++    if (destBuffer == NULL) {
++      destBuffer = _utf8_repr_;
++    }
++    destBuffer[reprPos++] = (ucharType)character;
+ 
+   /* utf8_char */
+     if (character <= 0xDF) {
+       /* character range 192 to 223 (leading bits 110.....) */
+       result = (charType) (character & 0x1F) << 6;
+       character = next_character();
++      destBuffer[reprPos++] = (ucharType)character;
+       if (character >= 0x80 && character <= 0xBF) {
+         /* character range 128 to 191 (leading bits 10......) */
+         result |= character & 0x3F;
+@@ -178,9 +184,11 @@
+           if (result <= 0x7F) {
+             /* Overlong encodings are illegal */
+             err_char(OVERLONG_UTF8_ENCODING, result);
++            reprPos = 0;
+           } else {
+             /* Extended control codes from the C1 set are illegal */
+             err_char(CHAR_ILLEGAL, result);
++            reprPos = 0;
+           } /* if */
+         } else {
+           /* correct encodings are in the range */
+@@ -189,6 +197,7 @@
+         in_file.character = next_character();
+       } else {
+         result = 0xC0 | result >> 6; /* Restore 8 bit char */
++        reprPos = 0;
+         err_char(SOLITARY_UTF8_START_BYTE, result);
+         in_file.character = character;
+       } /* if */
+@@ -196,18 +205,22 @@
+       /* character range 224 to 239 (leading bits 1110....) */
+       result = (charType) (character & 0x0F) << 12;
+       character = next_character();
++      destBuffer[reprPos++] = (ucharType)character;
+       if (character >= 0x80 && character <= 0xBF) {
+         /* character range 128 to 191 (leading bits 10......) */
+         result |= (charType) (character & 0x3F) << 6;
+         character = next_character();
++        destBuffer[reprPos++] = (ucharType)character;
+         if (character >= 0x80 && character <= 0xBF) {
+           result |= character & 0x3F;
+           if (result <= 0x7FF) {
+             /* Overlong encodings are illegal */
+             err_char(OVERLONG_UTF8_ENCODING, result);
++            reprPos = 0;
+           } else if (result >= 0xD800 && result <= 0xDFFF) {
+             /* UTF-16 surrogate characters are illegal */
+             err_char(UTF16_SURROGATE_CHAR_FOUND, result);
++            reprPos = 0;
+           } else {
+             /* correct encodings are in the range */
+             /* 0x800 to 0xFFFF (2048 to 65535)    */
+@@ -216,32 +229,39 @@
+         } else {
+           err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+           in_file.character = character;
++          reprPos = 0;
+           result = '?';
+         } /* if */
+       } else {
+         result = 0xE0 | result >> 12; /* Restore 8 bit char */
+         err_char(SOLITARY_UTF8_START_BYTE, result);
+         in_file.character = character;
++        reprPos = 0;
+       } /* if */
+     } else if (character <= 0xF7) {
+       /* character range 240 to 247 (leading bits 11110...) */
+       result = (charType) (character & 0x07) << 18;
+       character = next_character();
++      destBuffer[reprPos++] = (ucharType)character;
+       if (character >= 0x80 && character <= 0xBF) {
+         /* character range 128 to 191 (leading bits 10......) */
+         result |= (charType) (character & 0x3F) << 12;
+         character = next_character();
++        destBuffer[reprPos++] = (ucharType)character;
+         if (character >= 0x80 && character <= 0xBF) {
+           result |= (charType) (character & 0x3F) << 6;
+           character = next_character();
++          destBuffer[reprPos++] = (ucharType)character;
+           if (character >= 0x80 && character <= 0xBF) {
+             result |= character & 0x3F;
+             if (result <= 0xFFFF) {
+               /* Overlong encodings are illegal */
+               err_char(OVERLONG_UTF8_ENCODING, result);
++              reprPos = 0;
+             } else if (result > 0x10FFFF) {
+               /* result 0x110000 to 0x1FFFFF (1114112 to 2097151) */
+               err_char(CHAR_NOT_UNICODE, result);
++              reprPos = 0;
+             } else {
+               /* correct encodings are in the range     */
+               /* 0x10000 to 0x10FFFF (65536 to 1114111) */
+@@ -251,114 +271,143 @@
+             err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+             in_file.character = character;
+             result = '?';
++            reprPos = 0;
+           } /* if */
+         } else {
+           err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+           in_file.character = character;
+           result = '?';
++          reprPos = 0;
+         } /* if */
+       } else {
+         result = 0xF0 | result >> 18; /* Restore 8 bit char */
+         err_char(SOLITARY_UTF8_START_BYTE, result);
+         in_file.character = character;
++        reprPos = 0;
+       } /* if */
+     } else if (character <= 0xFB) {
+       /* character range 248 to 251 (leading bits 111110..) */
+       result = (charType) (character & 0x03) << 24;
+       character = next_character();
++      destBuffer[reprPos++] = (ucharType)character;
+       if (character >= 0x80 && character <= 0xBF) {
+         /* character range 128 to 191 (leading bits 10......) */
+         result |= (charType) (character & 0x3F) << 18;
+         character = next_character();
++        destBuffer[reprPos++] = (ucharType)character;
+         if (character >= 0x80 && character <= 0xBF) {
+           result |= (charType) (character & 0x3F) << 12;
+           character = next_character();
++          destBuffer[reprPos++] = (ucharType)character;
+           if (character >= 0x80 && character <= 0xBF) {
+             result |= (charType) (character & 0x3F) << 6;
+             character = next_character();
++            destBuffer[reprPos++] = (ucharType)character;
+             if (character >= 0x80 && character <= 0xBF) {
+               result |= character & 0x3F;
+               if (result <= 0x1FFFFF) {
+                 /* Overlong encodings are illegal */
+                 err_char(OVERLONG_UTF8_ENCODING, result);
++                reprPos = 0;
+               } else {
+                 /* result range 0x200000 to 0x3FFFFFF (2097152 to 67108863) */
+                 err_char(CHAR_NOT_UNICODE, result);
++                reprPos = 0;
+               } /* if */
+               in_file.character = next_character();
+             } else {
+               err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+               in_file.character = character;
+               result = '?';
++              reprPos = 0;
+             } /* if */
+           } else {
+             err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+             in_file.character = character;
+             result = '?';
++            reprPos = 0;
+           } /* if */
+         } else {
+           err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+           in_file.character = character;
+           result = '?';
++          reprPos = 0;
+         } /* if */
+       } else {
+         result = 0xF8 | result >> 24; /* Restore 8 bit char */
+         err_char(SOLITARY_UTF8_START_BYTE, result);
+         in_file.character = character;
++        reprPos = 0;
+       } /* if */
+     } else { /* if (character <= 0xFF) */
+       /* character range 252 to 255 (leading bits 111111..) */
+       result = (charType) (character & 0x03) << 30;
+       character = next_character();
++      destBuffer[reprPos++] = (ucharType)character;
+       if (character >= 0x80 && character <= 0xBF) {
+         /* character range 128 to 191 (leading bits 10......) */
+         result |= (charType) (character & 0x3F) << 24;
+         character = next_character();
++        destBuffer[reprPos++] = (ucharType)character;
+         if (character >= 0x80 && character <= 0xBF) {
+           result |= (charType) (character & 0x3F) << 18;
+           character = next_character();
++          destBuffer[reprPos++] = (ucharType)character;
+           if (character >= 0x80 && character <= 0xBF) {
+             result |= (charType) (character & 0x3F) << 12;
+             character = next_character();
++            destBuffer[reprPos++] = (ucharType)character;
+             if (character >= 0x80 && character <= 0xBF) {
+               result |= (charType) (character & 0x3F) << 6;
+               character = next_character();
++              destBuffer[reprPos++] = (ucharType)character;
+               if (character >= 0x80 && character <= 0xBF) {
+                 result |= character & 0x3F;
+                 if (result <= 0x3FFFFFF) {
+                   /* Overlong encodings are illegal */
+                   err_char(OVERLONG_UTF8_ENCODING, result);
++                  reprPos = 0;
+                 } else {
+                   /* result range 0x4000000 to 0xFFFFFFFF (67108864 to 4294967295) */
+                   err_char(CHAR_NOT_UNICODE, result);
++                  reprPos = 0;
+                 } /* if */
+                 in_file.character = next_character();
+               } else {
+                 err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+                 in_file.character = character;
+                 result = '?';
++                reprPos = 0;
+               } /* if */
+             } else {
+               err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+               in_file.character = character;
+               result = '?';
++              reprPos = 0;
+             } /* if */
+           } else {
+             err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+             in_file.character = character;
+             result = '?';
++            reprPos = 0;
+           } /* if */
+         } else {
+           err_cchar(UTF8_CONTINUATION_BYTE_EXPECTED, character);
+           in_file.character = character;
+           result = '?';
++          reprPos = 0;
+         } /* if */
+       } else {
+         result = 0xFC | result >> 30; /* Restore 8 bit char */
+         err_char(SOLITARY_UTF8_START_BYTE, result);
+         in_file.character = character;
++        reprPos = 0;
+       } /* if */
+     } /* if */
++    // destBuffer[reprPos] = '\0';
++    if (utf8Length != NULL) {
++      *utf8Length = reprPos;
++    }
+     return result;
+   } /* utf8_char */
+ 
+@@ -489,7 +538,7 @@
+           in_file.character = next_character();
+         } else if (in_file.character >= 0xC0 && in_file.character <= 0xFF) {
+           /* character range 192 to 255 (leading bits 11......) */
+-          symbol.charValue = utf8_char(in_file.character);
++          symbol.charValue = utf8_char(in_file.character, NULL, NULL);
+         } else {
+           if (in_file.character >= 0x80 && in_file.character <= 0xBF) {
+             /* character range 128 to 191 (leading bits 10......) */
+@@ -585,7 +634,7 @@
+       } else if (character >= 0xC0 && character <= 0xFF) {
+         /* character range 192 to 255 (leading bits 11......) */
+         check_stri_length(position);
+-        symbol.striValue->mem[position++] = utf8_char(character);
++        symbol.striValue->mem[position++] = utf8_char(character, NULL, NULL);
+         character = in_file.character;
+       } else if (character == '\n' || character == '\r' ||
+           character == EOF) {
+diff -aurN seed7_05_20150216.orig/src/literal.h seed7_05_20150216/src/literal.h
+--- seed7_05_20150216.orig/src/literal.h	2014-03-29 06:49:10.000000000 -0400
++++ seed7_05_20150216/src/literal.h	2015-02-27 14:19:01.642619652 -0500
+@@ -25,6 +25,6 @@
+ /*                                                                  */
+ /********************************************************************/
+ 
+-charType utf8_char (register int character);
++charType utf8_char (register int character, ustriType, uint32Type *);
+ void lit_char (void);
+ void lit_string (void);
+diff -aurN seed7_05_20150216.orig/src/mk_linux.mak seed7_05_20150216/src/mk_linux.mak
+--- seed7_05_20150216.orig/src/mk_linux.mak	2015-02-01 03:52:50.000000000 -0500
++++ seed7_05_20150216/src/mk_linux.mak	2015-02-27 14:19:01.642619652 -0500
+@@ -13,7 +13,7 @@
+ # CFLAGS = -O2 -g -Wall -Wstrict-prototypes -Winline -Wconversion -Wshadow -Wpointer-arith -ftrapv
+ # CFLAGS = -O2 -g -x c++ -Wall -Winline -Wconversion -Wshadow -Wpointer-arith
+ # CFLAGS = -O2 -g -ffunction-sections -fdata-sections -Wall -Wstrict-prototypes -Winline -Wconversion -Wshadow -Wpointer-arith -ftrapv
+-CFLAGS = -O2 -g -ffunction-sections -fdata-sections $(INCLUDE_OPTIONS) -Wall -Wstrict-prototypes -Winline -Wconversion -Wshadow -Wpointer-arith
++CFLAGS = -O0 -g -ffunction-sections -fdata-sections $(INCLUDE_OPTIONS) -Wall -Wstrict-prototypes -Winline -Wconversion -Wshadow -Wpointer-arith
+ # CFLAGS = -O2 -g -ffunction-sections -fdata-sections $(INCLUDE_OPTIONS) -Wall -Winline -Wconversion -Wshadow -Wpointer-arith
+ # CFLAGS = -O2 -g -std=c99 -D_POSIX_SOURCE -ffunction-sections -fdata-sections -Wall -Wstrict-prototypes -Winline -Wconversion -Wshadow -Wpointer-arith
+ # CFLAGS = -O2 -g -Wall -Winline -Wconversion -Wshadow -Wpointer-arith
+@@ -137,7 +137,7 @@
+ 	cp -p ../prg/s7c ../bin
+ 
+ ../prg/s7c: ../prg/s7c.sd7 $(ALL_S7_LIBS)
+-	../bin/s7 -l ../lib ../prg/s7c -l ../lib -b ../bin -O2 ../prg/s7c
++	../bin/s7 -l ../lib ../prg/s7c -g-debug_c -l ../lib -b ../bin -O2 ../prg/s7c
+ 
+ clear: clean
+ 
+diff -aurN seed7_05_20150216.orig/src/option.h seed7_05_20150216/src/option.h
+--- seed7_05_20150216.orig/src/option.h	2015-01-31 05:25:45.000000000 -0500
++++ seed7_05_20150216/src/option.h	2015-02-27 14:19:01.642619652 -0500
+@@ -38,6 +38,7 @@
+ #define WRITE_LINE_NUMBERS    1024
+ #define SHOW_IDENT_TABLE      2048
+ #define SHOW_STATISTICS       4096
++#define PROG_IDENT_UNICODE    8192
+ 
+ typedef struct {
+     striType          source_file_argument;
+diff -aurN seed7_05_20150216.orig/src/.project seed7_05_20150216/src/.project
+--- seed7_05_20150216.orig/src/.project	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/src/.project	2015-02-27 14:02:52.526601458 -0500
+@@ -0,0 +1,27 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<projectDescription>
++	<name>seed7-20150201</name>
++	<comment></comment>
++	<projects>
++	</projects>
++	<buildSpec>
++		<buildCommand>
++			<name>org.eclipse.cdt.managedbuilder.core.genmakebuilder</name>
++			<triggers>clean,full,incremental,</triggers>
++			<arguments>
++			</arguments>
++		</buildCommand>
++		<buildCommand>
++			<name>org.eclipse.cdt.managedbuilder.core.ScannerConfigBuilder</name>
++			<triggers>full,incremental,</triggers>
++			<arguments>
++			</arguments>
++		</buildCommand>
++	</buildSpec>
++	<natures>
++		<nature>org.eclipse.cdt.core.cnature</nature>
++		<nature>org.eclipse.cdt.core.ccnature</nature>
++		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
++		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
++	</natures>
++</projectDescription>
+diff -aurN seed7_05_20150216.orig/src/s7.c seed7_05_20150216/src/s7.c
+--- seed7_05_20150216.orig/src/s7.c	2015-02-03 05:20:10.000000000 -0500
++++ seed7_05_20150216/src/s7.c	2015-05-28 12:49:24.132664292 -0400
+@@ -90,6 +90,10 @@
+     printf("Options:\n");
+     printf("  -?   Write Seed7 interpreter usage.\n");
+     printf("  -a   Analyze only and suppress the execution phase.\n");
++    printf("  -cx  Choose code set for program identifiers. Where x is a string consisting of:\n");
++    printf("         a ASCII code set only allowed for identifiers (default)\n");
++/*  printf("         l Single-byte code set specified by system locale\n"); */
++    printf("         u UTF-8 code set with all alphabetic symbols\n");
+     printf("  -dx  Set compile time trace level to x. Where x is a string consisting of:\n");
+     printf("         a Trace primitive actions\n");
+     printf("         c Do action check\n");
+@@ -139,6 +143,8 @@
+ #endif
+     option.source_file_argument = NULL;
+     option.analyze_only = FALSE;
++    option.parser_options = PROG_IDENT_UNICODE;
++    // default is to allow ascii only for identifiers
+     if (ALLOC_RTL_ARRAY(seed7_libraries, 0)) {
+       seed7_libraries->min_position = 1;
+       seed7_libraries->max_position = 0;
+@@ -248,6 +254,19 @@
+                 verbosity_level = 2;
+               } /* if */
+               break;
++            case 'c':
++              if (opt->mem[2] == 'u') {
++                option.parser_options |= PROG_IDENT_UNICODE;
++              }
++              else if (opt->mem[2] == 'l') {
++                // same as ASCII as of now
++              }
++              else if (opt->mem[2] != 'a') {
++                printf("*** Code set not supported: ");
++                prot_char(opt->mem[2]);
++                printf("\n");
++              }
++              break;
+             default:
+               if (!error) {
+                 printf(VERSION_INFO, LEVEL);
+@@ -355,6 +374,7 @@
+       if (fail_flag) {
+         printf("\n*** Processing the options failed. Program terminated.\n");
+       } else {
++
+         if (arg_v->max_position < arg_v->min_position) {
+           printf("This is free software; see the source for copying conditions.  There is NO\n");
+           printf("warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
+diff -aurN seed7_05_20150216.orig/src/s7.c.orig seed7_05_20150216/src/s7.c.orig
+--- seed7_05_20150216.orig/src/s7.c.orig	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/src/s7.c.orig	2015-02-27 14:10:26.038609972 -0500
+@@ -0,0 +1,415 @@
++/********************************************************************/
++/*                                                                  */
++/*  s7   Seed7 interpreter                                          */
++/*  Copyright (C) 1990 - 2015  Thomas Mertes                        */
++/*                                                                  */
++/*  This program is free software; you can redistribute it and/or   */
++/*  modify it under the terms of the GNU General Public License as  */
++/*  published by the Free Software Foundation; either version 2 of  */
++/*  the License, or (at your option) any later version.             */
++/*                                                                  */
++/*  This program is distributed in the hope that it will be useful, */
++/*  but WITHOUT ANY WARRANTY; without even the implied warranty of  */
++/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the   */
++/*  GNU General Public License for more details.                    */
++/*                                                                  */
++/*  You should have received a copy of the GNU General Public       */
++/*  License along with this program; if not, write to the           */
++/*  Free Software Foundation, Inc., 51 Franklin Street,             */
++/*  Fifth Floor, Boston, MA  02110-1301, USA.                       */
++/*                                                                  */
++/*  Module: Main                                                    */
++/*  File: seed7/src/s7.c                                            */
++/*  Changes: 1990 - 1994, 2010, 2011  Thomas Mertes                 */
++/*  Content: Main program of the Seed7 interpreter.                 */
++/*                                                                  */
++/********************************************************************/
++
++#include "version.h"
++
++#include "stdlib.h"
++#include "stdio.h"
++#include "string.h"
++
++#include "common.h"
++#include "sigutl.h"
++#include "data.h"
++#include "data_rtl.h"
++#include "infile.h"
++#include "heaputl.h"
++#include "striutl.h"
++#include "syvarutl.h"
++#include "identutl.h"
++#include "entutl.h"
++#include "findid.h"
++#include "symbol.h"
++#include "analyze.h"
++#include "prg_comp.h"
++#include "traceutl.h"
++#include "exec.h"
++#include "option.h"
++#include "runerr.h"
++#include "level.h"
++#include "int_rtl.h"
++#include "flt_rtl.h"
++#include "arr_rtl.h"
++#include "cmd_rtl.h"
++#include "con_drv.h"
++
++#ifdef USE_WINMAIN
++typedef struct {
++    int dummy;
++  } HINSTANCE__;
++typedef HINSTANCE__ *HINSTANCE;
++#endif
++
++striType programPath;
++
++#ifdef CHECK_STACK
++char *stack_base;
++memSizeType max_stack_size = 0;
++#endif
++
++#define VERSION_INFO "SEED7 INTERPRETER Version 5.0.%d  Copyright (c) 1990-2015 Thomas Mertes\n"
++
++
++
++void raise_error2 (int exception_num, const_cstriType filename, int line)
++
++  { /* raise_error2 */
++    /* printf("raise_error2(%d, %s, %d)\n", exception_num, filename, line); */
++    (void) raise_exception(prog.sys_var[exception_num]);
++  } /* raise_error2 */
++
++
++
++static void writeHelp (void)
++
++  { /* writeHelp */
++    printf("usage: s7 [options] sourcefile [parameters]\n\n");
++    printf("Options:\n");
++    printf("  -?   Write Seed7 interpreter usage.\n");
++    printf("  -a   Analyze only and suppress the execution phase.\n");
++    printf("  -dx  Set compile time trace level to x. Where x is a string consisting of:\n");
++    printf("         a Trace primitive actions\n");
++    printf("         c Do action check\n");
++    printf("         d Trace dynamic calls\n");
++    printf("         e Trace exceptions and handlers\n");
++    printf("         h Trace heap size (in combination with 'a')\n");
++    printf("         s Trace signals\n");
++    printf("  -d   Equivalent to -da\n");
++    printf("  -i   Show the identifier table after the analyzing phase.\n");
++    printf("  -l   Add a directory to the include library search path (e.g.: -l ../lib).\n");
++    printf("  -p   Specify a protocol file, for trace output (e.g.: -p prot.txt).\n");
++    printf("  -q   Compile quiet. Line and file information and compilation\n");
++    printf("       statistics are suppressed.\n");
++    printf("  -tx  Set runtime trace level to x. Where x is a string consisting of:\n");
++    printf("         a Trace primitive actions\n");
++    printf("         c Do action check\n");
++    printf("         d Trace dynamic calls\n");
++    printf("         e Trace exceptions and handlers\n");
++    printf("         h Trace heap size (in combination with 'a')\n");
++    printf("         s Trace signals\n");
++    printf("  -t   Equivalent to -ta\n");
++    printf("  -vn  Set verbosity level of analyse phase to n. Where n is one of:\n");
++    printf("         0 Compile quiet (equivalent to -q)\n");
++    printf("         1 Write just the header with version information (default)\n");
++    printf("         2 Write a list of include libraries\n");
++    printf("         3 Write line numbers, while analyzing\n");
++    printf("  -v   Equivalent to -v2\n");
++    printf("  -x   Execute even when the program contains errors.\n\n");
++  } /* writeHelp */
++
++
++
++static void processOptions (rtlArrayType arg_v)
++
++  {
++    int position;
++    striType opt;
++    striType trace_level;
++    int verbosity_level = 1;
++    rtlArrayType seed7_libraries;
++    rtlObjectType path_obj;
++    boolType error = FALSE;
++
++  /* processOptions */
++#ifdef TRACE_OPTION
++    printf("BEGIN processOptions\n");
++#endif
++    option.source_file_argument = NULL;
++    option.analyze_only = FALSE;
++    if (ALLOC_RTL_ARRAY(seed7_libraries, 0)) {
++      seed7_libraries->min_position = 1;
++      seed7_libraries->max_position = 0;
++    } /* if */
++    for (position = 0; position < arg_v->max_position; position++) {
++      if (option.source_file_argument == NULL) {
++        opt = arg_v->arr[position].value.striValue;
++        /* prot_stri(opt);
++           printf("\n"); */
++        if (opt->size == 2 && opt->mem[0] == '-') {
++          switch (opt->mem[1]) {
++            case 'a':
++              option.analyze_only = TRUE;
++              break;
++            case 'd':
++              if (ALLOC_STRI_SIZE_OK(trace_level, 1)) {
++                trace_level->mem[0] = 'a';
++                trace_level->size = 1;
++                mapTraceFlags(trace_level, &option.parser_options);
++                FREE_STRI(trace_level, 1);
++              } /* if */
++              break;
++            case 'h':
++            case '?':
++              option.write_help = TRUE;
++              break;
++            case 'i':
++              option.parser_options |= SHOW_IDENT_TABLE;
++              break;
++            case 'p':
++              if (position < arg_v->max_position - 1) {
++                arg_v->arr[position].value.striValue = NULL;
++                FREE_STRI(opt, opt->size);
++                position++;
++                option.prot_file_name = stri_to_standard_path(arg_v->arr[position].value.striValue);
++                arg_v->arr[position].value.striValue = NULL;
++                opt = NULL;
++              } /* if */
++              break;
++            case 'q':
++              verbosity_level = 0;
++              break;
++            case 's':
++              option.handle_signals = FALSE;
++              break;
++            case 't':
++              if (ALLOC_STRI_SIZE_OK(trace_level, 1)) {
++                trace_level->mem[0] = 'a';
++                trace_level->size = 1;
++                mapTraceFlags(trace_level, &option.exec_options);
++                FREE_STRI(trace_level, 1);
++              } /* if */
++              break;
++            case 'v':
++              verbosity_level = 2;
++              break;
++            case 'x':
++              option.execute_always = TRUE;
++              break;
++            case 'l':
++              if (position < arg_v->max_position - 1) {
++                arg_v->arr[position].value.striValue = NULL;
++                FREE_STRI(opt, opt->size);
++                position++;
++                path_obj.value.striValue = stri_to_standard_path(arg_v->arr[position].value.striValue);
++                if (seed7_libraries != NULL) {
++                  arrPush(&seed7_libraries, path_obj.value.genericValue);
++                } /* if */
++                arg_v->arr[position].value.striValue = NULL;
++                opt = NULL;
++              } /* if */
++              break;
++            default:
++              if (!error) {
++                printf(VERSION_INFO, LEVEL);
++                error = TRUE;
++              } /* if */
++              printf("*** Ignore unsupported option: ");
++              prot_stri_unquoted(opt);
++              printf("\n");
++              break;
++          } /* switch */
++        } else if (opt->size >= 3 && opt->mem[0] == '-') {
++          switch (opt->mem[1]) {
++            case 'd':
++              if (ALLOC_STRI_SIZE_OK(trace_level, opt->size - 2)) {
++                memcpy(trace_level->mem, &opt->mem[2],
++                       (opt->size - 2) * sizeof(strElemType));
++                trace_level->size = opt->size - 2;
++                mapTraceFlags(trace_level, &option.parser_options);
++                FREE_STRI(trace_level, 1);
++              } /* if */
++              break;
++            case 't':
++              if (ALLOC_STRI_SIZE_OK(trace_level, opt->size - 2)) {
++                memcpy(trace_level->mem, &opt->mem[2],
++                       (opt->size - 2) * sizeof(strElemType));
++                trace_level->size = opt->size - 2;
++                mapTraceFlags(trace_level, &option.exec_options);
++                FREE_STRI(trace_level, 1);
++              } /* if */
++              break;
++            case 'v':
++              if (opt->mem[2] >= '0' && opt->mem[2] <= '3') {
++                verbosity_level = (int) opt->mem[2] - '0';
++              } else {
++                verbosity_level = 2;
++              } /* if */
++              break;
++            default:
++              if (!error) {
++                printf(VERSION_INFO, LEVEL);
++                error = TRUE;
++              } /* if */
++              printf("*** Ignore unsupported option: ");
++              prot_stri_unquoted(opt);
++              printf("\n");
++              break;
++          } /* switch */
++        } else {
++          option.source_file_argument = stri_to_standard_path(opt);
++          arg_v->arr[position].value.striValue = NULL;
++          opt = NULL;
++        } /* if */
++        if (opt != NULL) {
++          arg_v->arr[position].value.striValue = NULL;
++          FREE_STRI(opt, opt->size);
++        } /* if */
++      } else {
++        if (option.argv == NULL) {
++          option.argv = arg_v;
++          option.argv_start = (memSizeType) position;
++          /* printf("argv_start = %d\n", position); */
++        } /* if */
++      } /* if */
++    } /* for */
++    option.seed7_libraries = seed7_libraries;
++    if (verbosity_level >= 1) {
++      if (verbosity_level >= 2) {
++        option.parser_options |= WRITE_LIBRARY_NAMES;
++        option.parser_options |= SHOW_STATISTICS;
++        if (verbosity_level >= 3) {
++          option.parser_options |= WRITE_LINE_NUMBERS;
++        } /* if */
++      } /* if */
++      if (!error) {
++        printf(VERSION_INFO, LEVEL);
++      } /* if */
++    } /* if */
++    if (option.handle_signals) {
++      option.parser_options |= HANDLE_SIGNALS;
++      option.exec_options   |= HANDLE_SIGNALS;
++    } /* if */
++#ifdef TRACE_OPTION
++    printf("END processOptions\n");
++#endif
++  } /* processOptions */
++
++
++
++#ifdef OUT_OF_ORDER
++static void printOptions (void)
++
++  { /* printOptions */
++    printf("source_file_argument: "); prot_stri( option.source_file_argument);    printf("\n");
++    printf("prot_file_name:       "); prot_stri( option.prot_file_name);          printf("\n");
++    printf("write_help:           "); prot_int(  option.write_help);              printf("\n");
++    printf("analyze_only:         "); prot_int(  option.analyze_only);            printf("\n");
++    printf("execute_always:       "); prot_int(  option.execute_always);          printf("\n");
++    printf("parser_options:       "); prot_int(  option.parser_options);          printf("\n");
++    printf("handle_signals:       "); prot_int(  option.handle_signals);          printf("\n");
++    printf("seed7_libraries:      "); prot_int((intType) option.seed7_libraries); printf("\n");
++    printf("argv:                 "); prot_int((intType) option.argv);            printf("\n");
++    printf("argv_start:           "); prot_int( option.argv_start);               printf("\n");
++  } /* printOptions */
++#endif
++
++
++
++#ifdef USE_WMAIN
++int wmain (int argc, wchar_t **argv)
++#elif defined USE_WINMAIN
++int WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, char *lpCmdLine, int nShowCmd)
++#else
++int main (int argc, char **argv)
++#endif
++
++  {
++    rtlArrayType arg_v;
++    progType currentProg;
++
++  /* main */
++#ifdef TRACE_S7
++    printf("BEGIN S7\n");
++#endif
++#ifdef CHECK_STACK
++    stack_base = (char *) &arg_v;
++#endif
++    setupStack();
++    set_protfile_name(NULL);
++#ifdef USE_WINMAIN
++    arg_v = getArgv(0, NULL, NULL, NULL, &programPath);
++#else
++    arg_v = getArgv(argc, argv, NULL, NULL, &programPath);
++#endif
++    if (arg_v == NULL) {
++      printf(VERSION_INFO, LEVEL);
++      printf("\n*** No more memory. Program terminated.\n");
++    } else {
++      processOptions(arg_v);
++      /* printOptions(); */
++      setup_signal_handlers((option.parser_options & HANDLE_SIGNALS) != 0,
++                            (option.parser_options & TRACE_SIGNALS) != 0);
++      if (fail_flag) {
++        printf("\n*** Processing the options failed. Program terminated.\n");
++      } else {
++        if (arg_v->max_position < arg_v->min_position) {
++          printf("This is free software; see the source for copying conditions.  There is NO\n");
++          printf("warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
++          printf("Homepage: http://seed7.sourceforge.net\n\n");
++          printf("usage: s7 [options] sourcefile [parameters]\n\n");
++          printf("Use  s7 -?  to get more information about s7.\n\n");
++        } else if (option.write_help) {
++          writeHelp();
++        } else {
++          setupRand();
++          setupFloat();
++          /* printf("source_file_argument: \"");
++             prot_stri(option.source_file_argument);
++             printf("\"\n");
++             printf("prot_file_name: \"%s\"\n", option.prot_file_name); */
++          if (option.source_file_argument == NULL) {
++            printf("*** Sourcefile missing\n");
++          } else {
++            currentProg = analyze(option.source_file_argument, option.parser_options,
++                                  option.seed7_libraries, option.prot_file_name);
++            if (!option.analyze_only && currentProg != NULL &&
++                (currentProg->error_count == 0 || option.execute_always)) {
++              /* PRIME_OBJECTS(); */
++              /* printf("%d%d\n",
++                 trace.actions,
++                 trace.check_actions); */
++              if (currentProg->main_object == NULL) {
++                printf("*** Declaration for main missing\n");
++              } else {
++                interpret(currentProg, option.argv, option.argv_start,
++                          option.exec_options, option.prot_file_name);
++              } /* if */
++              /* prgDestr(currentProg); */
++              /* heap_statistic(); */
++            } /* if */
++          } /* if */
++        } /* if */
++        shut_drivers();
++        if (fail_flag) {
++          printf("\n*** Uncaught EXCEPTION ");
++          printobject(fail_value);
++          printf(" raised with\n");
++          prot_list(fail_expression);
++          printf("\n\nStack:\n");
++          write_call_stack(fail_stack);
++        } /* if */
++      } /* if */
++    } /* if */
++    /* getchar(); */
++    /* heap_statistic(); */
++#ifdef CHECK_STACK
++    printf("max_stack_size: %lu (0x%lx)\n", max_stack_size, max_stack_size);
++#endif
++#ifdef TRACE_S7
++    printf("END S7\n");
++#endif
++    return 0;
++  } /* main */
+diff -aurN seed7_05_20150216.orig/src/scanner.c seed7_05_20150216/src/scanner.c
+--- seed7_05_20150216.orig/src/scanner.c	2014-03-29 06:59:35.000000000 -0400
++++ seed7_05_20150216/src/scanner.c	2015-02-27 14:19:01.642619652 -0500
+@@ -48,13 +48,14 @@
+ #include "error.h"
+ #include "stat.h"
+ #include "findid.h"
++#include "chr_rtl.h"
++#include "ut8_rtl.h"
+ 
+ #undef EXTERN
+ #define EXTERN
+ #include "scanner.h"
+ 
+ 
+-
+ static void scan_comment (void)
+ 
+   {
+@@ -142,7 +143,7 @@
+ #endif
+     if (in_file.character >= 0xC0 && in_file.character <= 0xFD) {
+       /* character range 192 to 253 (leading bits 11......) */
+-      unicode_char = utf8_char(in_file.character);
++      unicode_char = utf8_char(in_file.character, NULL, NULL);
+       if (unicode_char != 0xFEFF /* Byte-order mark */) {
+         err_char(CHAR_ILLEGAL, unicode_char);
+         while (char_class(in_file.character) == ILLEGALCHAR) {
+@@ -175,25 +176,13 @@
+ static void scan_illegal (void)
+ 
+   {
+-    charType unicode_char;
+-
+-  /* scan_illegal */
++    /* scan_illegal */
+ #ifdef TRACE_SCANNER
+     printf("BEGIN scan_illegal\n");
+ #endif
+-    if (in_file.character >= 0xC0 && in_file.character <= 0xFF) {
+-      /* character range 192 to 255 (leading bits 11......) */
+-      unicode_char = utf8_char(in_file.character);
+-      err_char(CHAR_ILLEGAL, unicode_char);
+-      while (char_class(in_file.character) == ILLEGALCHAR) {
+-        in_file.character = next_character();
+-      } /* while */
+-    } else {
+-      err_cchar(CHAR_ILLEGAL, in_file.character);
+-      do {
+-        in_file.character = next_character();
+-      } while (char_class(in_file.character) == ILLEGALCHAR);
+-    } /* if */
++    do {
++      in_file.character = next_character();
++    } while (char_class(in_file.character) == ILLEGALCHAR);
+ #ifdef TRACE_SCANNER
+     printf("END scan_illegal\n");
+ #endif
+@@ -228,6 +217,115 @@
+ 
+ 
+ 
++static inline void complete_symbol_name (sySizeType position)
++
++  {
++    symbol.name[position] = '\0';                           /*  0.36%  0.37% */
++    find_normal_ident(position);                            /*  0.24%  0.25% */
++    symbol.sycategory = NAMESYMBOL;                         /*  0.24%  0.25% */
++    symbol.syNumberInLine++;
++  }
++
++
++
++typedef sySizeType (*scan_symbol_continuation)(int character, sySizeType position);
++
++static scan_symbol_continuation extended_scan_func;
++
++static sySizeType continue_scan_symbol_ascii(int character, register sySizeType position)
++
++  {
++    if (position == 0 && char_class(character) == ILLEGALCHAR) {
++      scan_illegal();
++      return 0;
++    }
++
++    return position;
++  }
++
++
++#define _MAX_UTF8_LENGTH 6
++
++static sySizeType continue_scan_symbol_utf8(register int character, register sySizeType position)
++
++  {
++    charType unicode_char = 0;
++    uint32Type utf8_char_length = 0;
++    if (character >= 0xC0 && character <= 0xFF) {
++      /* character range 192 to 255 (leading bits 11......) */
++      check_symb_length(position + _MAX_UTF8_LENGTH);
++      unicode_char = utf8_char(character, symbol.name + position, &utf8_char_length);
++      if (position == 0 && !chrIsLetter(unicode_char)) {
++        do {
++          character = in_file.character;
++          if (character >= 0xC0 && character <= 0xFF) {
++            unicode_char = utf8_char(character, symbol.name + position, &utf8_char_length);
++            if (chrIsLetter(unicode_char)) {
++              break;
++            }
++          } else {
++            unicode_char = 0;
++            in_file.character = next_character();
++            if (char_class(in_file.character) != ILLEGALCHAR) {
++              break;
++            }
++          }
++        }
++        while (character != EOF);
++        if (unicode_char == 0) {
++          return 0;
++        }
++      }
++      if (chrIsLetter(unicode_char)) {
++        /* UNICODE LETTERCHAR, UNDERLINECHAR */
++        do {
++          if (unicode_char != 0) {
++            position += utf8_char_length;
++            character = in_file.character;
++            check_symb_length(position + _MAX_UTF8_LENGTH);
++          } else {
++            symbol.name[position++] = (ucharType) character;
++            character = next_character();
++            check_symb_length(position + 1);
++          }
++          if (character >= 0xC0 && character <= 0xFF) {
++            unicode_char = utf8_char(character, symbol.name + position, &utf8_char_length);
++            character = 0;
++          } else {
++            in_file.character = character;
++            unicode_char = 0;
++          }
++        } while (name_character(character)
++              || chrIsLetter(unicode_char));
++      }
++    }
++    if (position == 0) {
++      while (char_class(character) == ILLEGALCHAR) {
++        /* ILLEGALCHAR */
++        character = next_character();
++        err_cchar(CHAR_ILLEGAL, character);
++      } /* while */
++      in_file.character = character;
++      return 0;
++    }
++
++    in_file.character = character;
++    return position;
++  } /* scan_symbol_utf8 */
++
++
++void init_scanner (void)
++
++  {
++    if (opt_has_flag(encoding_options, ENC_IDENT_UTF8)) {
++      extended_scan_func = continue_scan_symbol_utf8;
++    }
++    else {
++      extended_scan_func = continue_scan_symbol_ascii;
++    }
++  }
++
++
+ void scan_symbol (void)
+ 
+   {                                                             /*  1.89%  1.94% */
+@@ -279,12 +377,12 @@
+           symbol.name[position++] = (ucharType) character;      /*  2.31%  2.36% */
+         } /* while */                                           /*  9.71% 11.78% */
+ #endif
+-
+-        symbol.name[position] = '\0';                           /*  0.36%  0.37% */
+-        find_normal_ident(position);                            /*  0.24%  0.25% */
+         in_file.character = character;                          /*  0.12%  0.12% */
+-        symbol.sycategory = NAMESYMBOL;                         /*  0.24%  0.25% */
+-        symbol.syNumberInLine++;
++        position = (extended_scan_func)(character, position);
++
++        /* optimization: we assume position will always be > 0
++         * and we have a complete symbol here */
++        complete_symbol_name(position);
+         break;                                                  /*  0.12%  0.12% */
+       case ' ':  case '\t':  case '\r':
+         /* SPACECHAR */
+@@ -367,10 +465,12 @@
+         scan_eof();
+         break;
+       default:
+-        /* ILLEGALCHAR */
+-        in_file.character = character;
+-        scan_illegal();
+-        scan_symbol();                                          /*  1.46%  1.28% */
++        if ((position = (extended_scan_func)(character, 0)) == 0) {
++          scan_symbol();                                        /*  1.46%  1.28% */
++        }
++        else {
++          complete_symbol_name(position);
++        }
+         break;
+     } /* switch */
+ #ifdef TRACE_SCANNER
+diff -aurN seed7_05_20150216.orig/src/scanner.h seed7_05_20150216/src/scanner.h
+--- seed7_05_20150216.orig/src/scanner.h	2009-06-23 15:35:06.000000000 -0400
++++ seed7_05_20150216/src/scanner.h	2015-02-27 14:19:01.642619652 -0500
+@@ -27,4 +27,4 @@
+ 
+ void scan_byte_order_mark (void);
+ void scan_symbol (void);
+-
++void init_scanner (void);
+diff -aurN seed7_05_20150216.orig/src/.settings/language.settings.xml seed7_05_20150216/src/.settings/language.settings.xml
+--- seed7_05_20150216.orig/src/.settings/language.settings.xml	1969-12-31 19:00:00.000000000 -0500
++++ seed7_05_20150216/src/.settings/language.settings.xml	2015-02-27 14:07:31.886606702 -0500
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="UTF-8" standalone="no"?>
++<project>
++	<configuration id="cdt.managedbuild.toolchain.gnu.cross.base.1664533824" name="Default">
++		<extension point="org.eclipse.cdt.core.LanguageSettingsProvider">
++			<provider copy-of="extension" id="org.eclipse.cdt.ui.UserLanguageSettingsProvider"/>
++			<provider-reference id="org.eclipse.cdt.core.ReferencedProjectsLanguageSettingsProvider" ref="shared-provider"/>
++			<provider copy-of="extension" id="org.eclipse.cdt.managedbuilder.core.GCCBuildCommandParser"/>
++			<provider class="org.eclipse.cdt.internal.build.crossgcc.CrossGCCBuiltinSpecsDetector" console="false" env-hash="-927159230147458267" id="org.eclipse.cdt.build.crossgcc.CrossGCCBuiltinSpecsDetector" keep-relative-paths="false" name="CDT Cross GCC Built-in Compiler Settings" parameter="${COMMAND} ${FLAGS} -E -P -v -dD &quot;${INPUTS}&quot;" prefer-non-shared="true">
++				<language-scope id="org.eclipse.cdt.core.gcc"/>
++				<language-scope id="org.eclipse.cdt.core.g++"/>
++			</provider>
++			<provider-reference id="org.eclipse.cdt.managedbuilder.core.MBSLanguageSettingsProvider" ref="shared-provider"/>
++		</extension>
++	</configuration>
++</project>
+diff -aurN seed7_05_20150216.orig/src/traceutl.c seed7_05_20150216/src/traceutl.c
+--- seed7_05_20150216.orig/src/traceutl.c	2015-01-31 04:02:30.000000000 -0500
++++ seed7_05_20150216/src/traceutl.c	2015-02-27 14:19:01.646619652 -0500
+@@ -139,6 +139,61 @@
+ 
+ 
+ 
++void prot_uchar_buf (ucharType *buffer, memSizeType buffer_size)
++
++  {
++    traceRecord trace_backup;
++
++  /* prot_uchar_buf */
++    if (internal_protocol) {
++      if (SYS_PROT_OUTFILE_OBJECT != NULL) {
++        striType out_stri;
++        memSizeType dest_len = 0;
++        memcpy(&trace_backup, &trace, sizeof(traceRecord));
++        memset(&trace, 0, sizeof(traceRecord));
++        if (buffer != NULL && ALLOC_STRI_CHECK_SIZE(out_stri, buffer_size)) {
++          if (utf8_to_stri (out_stri->mem, &dest_len, buffer, buffer_size) == 0) {
++            out_stri->size = dest_len;
++            do_wrstri(SYS_PROT_OUTFILE_OBJECT, out_stri);
++            FREE_STRI(out_stri, out_stri->capacity);
++          }
++        }
++        memcpy(&trace, &trace_backup, sizeof(traceRecord));
++      } /* if */
++    } else {
++      if (protfile == NULL) {
++        protfile = stdout;
++      } /* if */
++      if (buffer == NULL) {
++        fputs("*NULL*", protfile);
++      } else {
++        fwrite(buffer, 1, buffer_size, protfile);
++      } /* if */
++    } /* if */
++  } /* prot_uchar_buf */
++
++
++
++boolType prot_stri_internal (striType stri)
++
++  {
++    traceRecord trace_backup;
++
++  /* prot_stri_internal */
++    if (internal_protocol) {
++      if (SYS_PROT_OUTFILE_OBJECT != NULL) {
++        memcpy(&trace_backup, &trace, sizeof(traceRecord));
++        memset(&trace, 0, sizeof(traceRecord));
++        do_wrstri(SYS_PROT_OUTFILE_OBJECT, stri);
++        memcpy(&trace, &trace_backup, sizeof(traceRecord));
++        return TRUE;
++      } /* if */
++    } /* if */
++    return FALSE;
++  } /* prot_stri_internal */
++
++
++
+ void prot_cchar (char ch)
+ 
+   {
+diff -aurN seed7_05_20150216.orig/src/traceutl.h seed7_05_20150216/src/traceutl.h
+--- seed7_05_20150216.orig/src/traceutl.h	2015-01-31 04:03:56.000000000 -0500
++++ seed7_05_20150216/src/traceutl.h	2015-02-27 14:19:01.646619652 -0500
+@@ -58,6 +58,8 @@
+ #endif
+ void prot_char (charType cvalue);
+ /* void prot_os_stri (const const_os_striType os_stri); */
++boolType prot_stri_internal (striType stri);
++void prot_uchar_buf (ucharType *buffer, memSizeType buffer_size);
+ void prot_stri_unquoted (const const_striType stri);
+ void prot_stri (const const_striType stri);
+ void prot_bstri (bstriType bstri);
+diff -aurN seed7_05_20150216.orig/src/ut8lib.c seed7_05_20150216/src/ut8lib.c
+--- seed7_05_20150216.orig/src/ut8lib.c	2014-04-05 17:43:56.000000000 -0400
++++ seed7_05_20150216/src/ut8lib.c	2015-02-27 14:19:01.646619652 -0500
+@@ -42,7 +42,6 @@
+ #include "ut8lib.h"
+ 
+ 
+-
+ /**
+  *  Read a character from an UTF-8 file.
+  *  @return the character read, or EOF at the end of the file.

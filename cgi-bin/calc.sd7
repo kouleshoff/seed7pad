@@ -1,0 +1,92 @@
+#!/usr/local/bin/s7 -q
+(********************************************************************)
+(*                                                                  *)
+(*  calc7.sd7     Calculator                                        *)
+(*  Copyright (C) 1995, 2004, 2013, 2014  Thomas Mertes             *)
+(*                                                                  *)
+(*  This program is free software; you can redistribute it and/or   *)
+(*  modify it under the terms of the GNU General Public License as  *)
+(*  published by the Free Software Foundation; either version 2 of  *)
+(*  the License, or (at your option) any later version.             *)
+(*                                                                  *)
+(*  This program is distributed in the hope that it will be useful, *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of  *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the   *)
+(*  GNU General Public License for more details.                    *)
+(*                                                                  *)
+(*  You should have received a copy of the GNU General Public       *)
+(*  License along with this program; if not, write to the           *)
+(*  Free Software Foundation, Inc., 51 Franklin Street,             *)
+(*  Fifth Floor, Boston, MA  02110-1301, USA.                       *)
+(*                                                                  *)
+(********************************************************************)
+
+
+$ include "seed7_05.s7i";
+  include "progs.s7i";
+  include "console.s7i";
+
+
+const proc: main is func
+
+  local
+    var string: buffer is "";
+    var string: command is "";
+    var string: queryStr is "";
+    const integer: contentLength is 1024;
+    var program: prog_expr is program.EMPTY;
+    
+  begin
+    writeln("Content-Type: text/plain");
+    buffer := gets(IN, contentLength);
+    while length(buffer) <> 0 do
+      command &:= buffer;
+      buffer := gets(IN, contentLength);
+    end while;
+    queryStr := getenv("QUERY_STRING");
+    if command <> "" then
+      prog_expr := parseStri("\
+        \$ include \"seed7_05.s7i\";\n\
+        \include \"console.s7i\";\n\
+        \include \"float.s7i\";\n\
+        \include \"math.s7i\";\n\
+        \include \"rational.s7i\";\n\
+        \include \"complex.s7i\";\n\
+        \include \"bigint.s7i\";\n\
+        \include \"bigrat.s7i\";\n\
+        \include \"time.s7i\";\n\
+        \include \"duration.s7i\";\n\
+        \include \"bytedata.s7i\";\n\
+        \\n\
+        \const proc: main is func\n\
+        \  begin\n\
+        \    OUT := STD_CONSOLE;\n\
+        \    block\n\
+        \      writeln(" & command & ");\n\
+        \    exception\n\
+        \      catch MEMORY_ERROR:   writeln(\"MEMORY_ERROR\");\n\
+        \      catch NUMERIC_ERROR:  writeln(\"NUMERIC_ERROR\");\n\
+        \      catch OVERFLOW_ERROR: writeln(\"OVERFLOW_ERROR\");\n\
+        \      catch RANGE_ERROR:    writeln(\"RANGE_ERROR\");\n\
+        \      catch FILE_ERROR:     writeln(\"FILE_ERROR\");\n\
+        \    end block;\n\
+        \  end func;\n\
+        \");
+      # writeln("Content-Length: " <& length(response));
+      writeln;
+      if prog_expr <> program.EMPTY then
+        if errorCount(prog_expr) = 0 then
+          execute(prog_expr);
+        else
+          writeln("*** " <& errorCount(prog_expr) <& " errors found");
+        end if;
+      end if;
+    else
+      writeln;
+      writeln("No program specified");
+      if length(queryStr) > 0 then
+        writeln("QUERY_STRING is " <& queryStr);
+      end if;
+    end if;
+    
+  end func;
